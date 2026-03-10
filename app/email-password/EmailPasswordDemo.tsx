@@ -70,7 +70,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
         setStatus(error.message);
       } else {
         setStatus("Signed in successfully");
-        router.push("/protected/top-setups/final-combined");
+        router.push("/protected/top-setups/Final-combined");
       }
     }
   }
