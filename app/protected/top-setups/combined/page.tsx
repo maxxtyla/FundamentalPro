@@ -59,7 +59,7 @@ export default function CombinedTopSetupsPage() {
       
       {/* Header */}
       <h1 className="text-xl sm:text-2xl font-bold text-white">
-        Top Setups — <span className="text-yellow-400">Combined</span>
+        Top Setups — <span className="text-yellow-400">Macro + COT </span>
       </h1>
 
       {/* FILTER BAR */}
