@@ -52,7 +52,8 @@ export default function Sidebar() {
 
           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${openTopSetups ? "max-h-96 opacity-100" : "max-h-0 opacity-0"}`}>
             <div className="ml-4 space-y-2 mt-2">
-              <NavLink href="/protected/top-setups/combined" label="Combined" pathname={pathname} />
+              <NavLink href="/protected/top-setups/Final-combined" label="Combined" pathname={pathname} />
+              <NavLink href="/protected/top-setups/combined" label="Macro & COT" pathname={pathname} />
               <NavLink href="/protected/top-setups/macro" label="Macro Only" pathname={pathname} />
               <NavLink href="/protected/top-setups/cot" label="COT Sentiment" pathname={pathname} />
               <NavLink href="/protected/top-setups/carry" label="Carry Trade" pathname={pathname} />
