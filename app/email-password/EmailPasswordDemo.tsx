@@ -20,6 +20,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
   const [isEmailSent, setIsEmailSent] = useState(false);
+  const [showConfirmationSuccess, setShowConfirmationSuccess] = useState(false);
   const supabase = getSupabaseBrowserClient();
   const [currentUser, setCurrentUser] = useState<User | null>(user);
   const router = useRouter();
@@ -32,10 +33,13 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
 
     if (confirmed === "true") {
       setMode("signin");
+      setShowConfirmationSuccess(true);
       setStatus("Email confirmed successfully! You can now sign in.");
+      // Clear password for security
+      setPassword("");
     } else if (error === "confirmation_failed") {
       setMode("signup");
-      setStatus("Email confirmation failed. Please try signing up again or contact support.");
+      setStatus("Email confirmation failed. Please try signing up again.");
     }
   }, [searchParams]);
 
@@ -76,13 +80,10 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
         setStatus(error.message);
         setIsEmailSent(false);
       } else {
-        // Check if email confirmation is required
         if (data.user && data.user.identities && data.user.identities.length === 0) {
-          // Email confirmation required
           setIsEmailSent(true);
           setStatus("Check your email to confirm your account before signing in.");
         } else {
-          // Auto-confirmed (if email confirmation is disabled in Supabase)
           setIsEmailSent(true);
           setStatus("Account created! You can now sign in.");
         }
@@ -109,9 +110,18 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
   const handleModeSwitch = (newMode: Mode) => {
     setMode(newMode);
     setIsEmailSent(false);
+    setShowConfirmationSuccess(false); // Hide confirmation banner when switching
     setStatus("");
     setPassword("");
+    
+    // If we're on the confirmed=true URL and switching modes, remove the param
+    if (searchParams.get("confirmed") === "true") {
+      router.replace("/email-password");
+    }
   };
+
+  // Determine if we should show the form fields
+  const shouldShowForm = !isEmailSent && (mode === "signin" || !showConfirmationSuccess);
 
   return (
     <AuthDemoPage
@@ -168,7 +178,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
             </div>
 
             {/* Success message after email confirmation */}
-            {searchParams.get("confirmed") === "true" && (
+            {showConfirmationSuccess && mode === "signin" && (
               <div className="mt-6 p-4 rounded-2xl bg-green-500/10 border border-green-500/30">
                 <div className="flex items-start gap-3">
                   <svg className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -177,7 +187,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                   <div>
                     <p className="text-green-400 font-medium text-sm">Email confirmed!</p>
                     <p className="text-green-300/80 text-xs mt-1">
-                      Your account is now active. Please sign in with your credentials.
+                      Your account is now active. Please enter your credentials to sign in.
                     </p>
                   </div>
                 </div>
@@ -219,7 +229,8 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               </div>
             )}
 
-            {mode === "signup" && !isEmailSent && searchParams.get("confirmed") !== "true" && (
+            {/* Signup name fields */}
+            {mode === "signup" && !isEmailSent && (
               <div className="grid grid-cols-2 gap-4 mt-6">
                 <label className="block text-sm font-medium text-slate-200">
                   First Name
@@ -245,8 +256,9 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 </label>
               </div>
             )}
-
-            {!isEmailSent && searchParams.get("confirmed") !== "true" && (
+            
+            {/* Email and Password fields - ALWAYS show in signin mode, or in signup when not email sent */}
+            {(mode === "signin" || (mode === "signup" && !isEmailSent)) && (
               <div className="mt-6 space-y-4">
                 <label className="block text-sm font-medium text-slate-200">
                   Email
@@ -274,7 +286,8 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               </div>
             )}
 
-            {!isEmailSent && searchParams.get("confirmed") !== "true" && (
+            {/* Submit button - show when form fields are visible */}
+            {(mode === "signin" || !isEmailSent) && (
               <button
                 type="submit"
                 className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-blue-600/40"
@@ -283,6 +296,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               </button>
             )}
 
+            {/* Go to Sign In button - only show after signup email sent */}
             {isEmailSent && mode === "signup" && (
               <button
                 type="button"
@@ -293,7 +307,8 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               </button>
             )}
 
-            {status && !isEmailSent && searchParams.get("confirmed") !== "true" && (
+            {/* Status messages */}
+            {status && !isEmailSent && (
               <p
                 className={`mt-4 text-sm ${
                   status.includes("confirm") || status.includes("Check your email")
