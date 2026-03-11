@@ -2,8 +2,185 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import { Calendar, Users, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import { Calendar, Users, TrendingUp, TrendingDown, AlertTriangle, Activity } from "lucide-react";
 
+// --- NEW: Price Ticker Types ---
+type PriceData = {
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  prevClose: number;
+};
+
+// --- NEW: Ticker Component ---
+function PriceTicker({ symbols, bias }: { symbols: string[]; bias: "bullish" | "bearish" }) {
+  const [prices, setPrices] = useState<Record<string, PriceData>>({});
+  const [loading, setLoading] = useState(true);
+
+  // Map your symbols to Yahoo Finance symbols
+  const symbolMap: Record<string, string> = {
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+    "AUDUSD": "AUDUSD=X",
+    "USDCAD": "USDCAD=X",
+    "USDCHF": "USDCHF=X",
+    "NZDUSD": "NZDUSD=X",
+    "EURGBP": "EURGBP=X",
+    "XAUUSD": "GC=F", // Gold futures
+    "XAGUSD": "SI=F", // Silver futures
+    "US30": "^DJI",
+    "US500": "^GSPC",
+    "NAS100": "^IXIC",
+    "UK100": "^FTSE",
+    "GER40": "^GDAXI",
+    "WTICO": "CL=F",
+    "BRENT": "BZ=F",
+  };
+
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const yahooSymbols = symbols.map(s => symbolMap[s] || s).join(",");
+        const res = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbols}?interval=1d&range=5d`
+        );
+        const data = await res.json();
+        
+        const priceMap: Record<string, PriceData> = {};
+        
+        // Handle single or multiple symbols
+        const results = Array.isArray(data.chart.result) ? data.chart.result : [data.chart.result];
+        
+        results.forEach((result: any, idx: number) => {
+          const meta = result.meta;
+          const originalSymbol = symbols[idx];
+          const price = meta.regularMarketPrice;
+          const prevClose = meta.previousClose || meta.chartPreviousClose;
+          
+          priceMap[originalSymbol] = {
+            symbol: originalSymbol,
+            price: price,
+            change: price - prevClose,
+            changePercent: ((price - prevClose) / prevClose) * 100,
+            prevClose: prevClose,
+          };
+        });
+        
+        setPrices(priceMap);
+      } catch (error) {
+        console.error("Price fetch error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [symbols]);
+
+  if (loading) {
+    return (
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {symbols.map((s) => (
+          <div key={s} className="flex-shrink-0 w-28 h-16 bg-blue-950/30 rounded-lg animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-blue-500/30">
+      {symbols.map((symbol) => {
+        const data = prices[symbol];
+        if (!data) return null;
+        
+        const isPositive = data.change >= 0;
+        const biasColor = bias === "bullish" 
+          ? (isPositive ? "border-green-500/40 bg-green-950/20" : "border-green-500/20 bg-green-950/10")
+          : (isPositive ? "border-red-500/20 bg-red-950/10" : "border-red-500/40 bg-red-950/20");
+        
+        return (
+          <div
+            key={symbol}
+            className={`flex-shrink-0 min-w-[120px] p-3 rounded-lg border ${biasColor} backdrop-blur-sm`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-bold text-white">{symbol}</span>
+              {isPositive ? (
+                <TrendingUp size={12} className={bias === "bullish" ? "text-green-400" : "text-red-400"} />
+              ) : (
+                <TrendingDown size={12} className={bias === "bullish" ? "text-green-400" : "text-red-400"} />
+              )}
+            </div>
+            <div className="text-sm font-mono font-semibold text-white">
+              {data.price.toFixed(data.price > 1000 ? 2 : data.price > 100 ? 3 : 5)}
+            </div>
+            <div className={`text-[10px] font-mono ${isPositive ? "text-green-400" : "text-red-400"}`}>
+              {isPositive ? "+" : ""}{data.change.toFixed(2)} ({isPositive ? "+" : ""}{data.changePercent.toFixed(2)}%)
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// --- NEW: Mini Chart Component (Weekly Price Action) ---
+function MiniPriceChart({ symbol }: { symbol: string }) {
+  const [candles, setCandles] = useState<number[]>([]);
+  
+  useEffect(() => {
+    const fetchWeekly = async () => {
+      try {
+        const symbolMap: Record<string, string> = {
+          "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X",
+          "XAUUSD": "GC=F", "US30": "^DJI", "US500": "^GSPC",
+        };
+        const yahooSym = symbolMap[symbol] || symbol;
+        const res = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=1d&range=1mo`
+        );
+        const data = await res.json();
+        const closes = data.chart.result[0].indicators.quote[0].close.slice(-5);
+        setCandles(closes.filter((c: number) => c !== null));
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchWeekly();
+  }, [symbol]);
+
+  if (candles.length < 2) return null;
+
+  const min = Math.min(...candles);
+  const max = Math.max(...candles);
+  const range = max - min || 1;
+  
+  // Generate SVG path
+  const points = candles.map((c, i) => {
+    const x = (i / (candles.length - 1)) * 100;
+    const y = 100 - ((c - min) / range) * 100;
+    return `${x},${y}`;
+  }).join(" ");
+
+  const isUp = candles[candles.length - 1] >= candles[0];
+
+  return (
+    <svg viewBox="0 0 100 100" className="w-16 h-8 opacity-60">
+      <polyline
+        fill="none"
+        stroke={isUp ? "#4ade80" : "#f87171"}
+        strokeWidth="3"
+        points={points}
+      />
+    </svg>
+  );
+}
+
+// --- MAIN PAGE COMPONENT ---
 type Row = {
   symbol: string;
   cot_score: number;
@@ -13,7 +190,6 @@ type Row = {
   combined_total_score: number;
   overall_bias: string;
   instrument_type: string;
-  // Additional metadata for display
   sentiment_data?: {
     long_percent: number;
     short_percent: number;
@@ -38,7 +214,6 @@ export default function CombinedTopSetupsPage() {
 
   useEffect(() => {
     fetchData();
-    // Refresh every 5 minutes
     const interval = setInterval(fetchData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [biasFilter, instrumentFilter, sortOrder]);
@@ -46,7 +221,6 @@ export default function CombinedTopSetupsPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      // Fetch from new combined API that includes sentiment and seasonality
       const res = await fetch("/api/combined-scores");
       if (!res.ok) throw new Error("Failed to fetch");
       
@@ -54,7 +228,6 @@ export default function CombinedTopSetupsPage() {
       let processedData: Row[] = json.data || [];
       setLastUpdated(json.last_updated || new Date().toISOString());
 
-      // Apply filters client-side (or move to API)
       if (biasFilter !== "All") {
         processedData = processedData.filter((row) => row.overall_bias === biasFilter);
       }
@@ -63,7 +236,6 @@ export default function CombinedTopSetupsPage() {
         processedData = processedData.filter((row) => row.instrument_type === instrumentFilter);
       }
 
-      // Sort by combined score
       processedData.sort((a, b) => 
         sortOrder === "asc" 
           ? a.combined_total_score - b.combined_total_score
@@ -84,6 +256,17 @@ export default function CombinedTopSetupsPage() {
     setSortOrder("desc");
   }
 
+  // Get top symbols by bias for ticker
+  const bullishSymbols = data
+    .filter(r => r.overall_bias.includes("Bullish"))
+    .slice(0, 6)
+    .map(r => r.symbol);
+
+  const bearishSymbols = data
+    .filter(r => r.overall_bias.includes("Bearish"))
+    .slice(0, 6)
+    .map(r => r.symbol);
+
   return (
     <div className="space-y-6 px-4 sm:px-6 lg:px-0">
       
@@ -101,6 +284,37 @@ export default function CombinedTopSetupsPage() {
           </p>
         )}
       </div>
+
+      {/* NEW: LIVE PRICE TICKERS */}
+      {(bullishSymbols.length > 0 || bearishSymbols.length > 0) && (
+        <div className="space-y-3">
+          {/* Bullish Tickers */}
+          {bullishSymbols.length > 0 && (
+            <div className="bg-green-950/20 border border-green-500/20 rounded-xl p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity size={14} className="text-green-400" />
+                <span className="text-xs font-bold text-green-400 uppercase tracking-wider">
+                  Bullish Setups — Live Prices
+                </span>
+              </div>
+              <PriceTicker symbols={bullishSymbols} bias="bullish" />
+            </div>
+          )}
+          
+          {/* Bearish Tickers */}
+          {bearishSymbols.length > 0 && (
+            <div className="bg-red-950/20 border border-red-500/20 rounded-xl p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity size={14} className="text-red-400" />
+                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                  Bearish Setups — Live Prices
+                </span>
+              </div>
+              <PriceTicker symbols={bearishSymbols} bias="bearish" />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Score Legend */}
       <div className="bg-blue-950/30 border border-blue-800/30 rounded-lg p-3 text-xs space-y-2">
@@ -126,10 +340,7 @@ export default function CombinedTopSetupsPage() {
 
       {/* FILTER BAR */}
       <div className="bg-blue-950/80 border border-blue-800/50 rounded-2xl p-4 flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-stretch sm:items-center">
-        
-        {/* Filters Container */}
         <div className="flex flex-col sm:flex-row gap-3 flex-1">
-          {/* Bias Filter */}
           <select
             value={biasFilter}
             onChange={(e) => setBiasFilter(e.target.value)}
@@ -143,7 +354,6 @@ export default function CombinedTopSetupsPage() {
             <option value="Strong Bearish">Strong Bearish</option>
           </select>
 
-          {/* Instrument Filter */}
           <select
             value={instrumentFilter}
             onChange={(e) => setInstrumentFilter(e.target.value)}
@@ -157,7 +367,6 @@ export default function CombinedTopSetupsPage() {
             <option value="Index">Indices</option>
           </select>
 
-          {/* Sort */}
           <select
             value={sortOrder}
             onChange={(e) => setSortOrder(e.target.value as "asc" | "desc")}
@@ -168,7 +377,6 @@ export default function CombinedTopSetupsPage() {
           </select>
         </div>
 
-        {/* Reset Button */}
         <button
           onClick={resetFilters}
           className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/30 px-4 py-2.5 rounded-lg text-sm font-semibold transition whitespace-nowrap w-full sm:w-auto"
@@ -187,13 +395,14 @@ export default function CombinedTopSetupsPage() {
               key={row.symbol} 
               className="bg-blue-950/50 border border-blue-800/30 rounded-xl p-4 space-y-3"
             >
-              {/* Header: Symbol + Bias */}
               <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-lg">{row.symbol}</span>
+                <div>
+                  <span className="font-bold text-white text-lg">{row.symbol}</span>
+                  <MiniPriceChart symbol={row.symbol} />
+                </div>
                 <BiasBadge bias={row.overall_bias} />
               </div>
               
-              {/* Contrarian & Seasonality Tags */}
               <div className="flex flex-wrap gap-2">
                 {row.sentiment_data?.is_contrarian && (
                   <span className={`text-xs px-2 py-1 rounded-full border ${
@@ -217,7 +426,6 @@ export default function CombinedTopSetupsPage() {
                 )}
               </div>
 
-              {/* Scores Grid */}
               <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="bg-blue-900/30 rounded-lg p-2">
                   <div className="text-xs text-blue-300 mb-1">COT</div>
@@ -245,7 +453,6 @@ export default function CombinedTopSetupsPage() {
                 </div>
               </div>
 
-              {/* Total Score */}
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
                 <div className="text-xs text-yellow-400 mb-1">Combined Score</div>
                 <div className={`text-2xl font-bold ${getScoreColor(row.combined_total_score)}`}>
@@ -264,6 +471,7 @@ export default function CombinedTopSetupsPage() {
             <thead className="bg-blue-900/50 text-blue-200 uppercase text-xs">
               <tr>
                 <th className="px-4 py-4 text-left font-semibold">Instrument</th>
+                <th className="px-4 py-4 text-center font-semibold">5D Trend</th>
                 <th className="px-4 py-4 text-center font-semibold">COT</th>
                 <th className="px-4 py-4 text-center font-semibold">Macro</th>
                 <th className="px-4 py-4 text-center font-semibold">
@@ -285,7 +493,7 @@ export default function CombinedTopSetupsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-blue-300">Loading...</td>
+                  <td colSpan={8} className="text-center py-8 text-blue-300">Loading...</td>
                 </tr>
               ) : (
                 data.map((row) => (
@@ -295,6 +503,10 @@ export default function CombinedTopSetupsPage() {
                   >
                     <td className="px-4 py-4 font-semibold text-white">
                       {row.symbol}
+                    </td>
+                    
+                    <td className="px-4 py-4">
+                      <MiniPriceChart symbol={row.symbol} />
                     </td>
 
                     <td className={`px-4 py-4 text-center ${getScoreColor(row.cot_score)}`}>
