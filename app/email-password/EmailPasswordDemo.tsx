@@ -19,6 +19,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
+  const [isEmailSent, setIsEmailSent] = useState(false);
   const supabase = getSupabaseBrowserClient();
   const [currentUser, setCurrentUser] = useState<User | null>(user);
   const router = useRouter();
@@ -58,11 +59,18 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
       });
       if (error) {
         setStatus(error.message);
+        setIsEmailSent(false);
       } else {
-        // Clear password and switch to sign in mode
-        setPassword("");
-        setMode("signin");
-        setStatus("Account created! Please sign in");
+        // Check if email confirmation is required
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          // Email confirmation required
+          setIsEmailSent(true);
+          setStatus("Check your email to confirm your account before signing in.");
+        } else {
+          // Auto-confirmed (if email confirmation is disabled in Supabase)
+          setIsEmailSent(true);
+          setStatus("Account created! You can now sign in.");
+        }
       }
     } else {
       const { error, data } = await supabase.auth.signInWithPassword({
@@ -70,7 +78,11 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
         password,
       });
       if (error) {
-        setStatus(error.message);
+        if (error.message.includes("Email not confirmed") || error.message.includes("not confirmed")) {
+          setStatus("Please confirm your email address before signing in. Check your inbox.");
+        } else {
+          setStatus(error.message);
+        }
       } else {
         setStatus("Signed in successfully");
         router.push("/protected/top-setups/Final-combined");
@@ -78,14 +90,22 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
     }
   }
 
+  // Reset email sent state when switching modes
+  const handleModeSwitch = (newMode: Mode) => {
+    setMode(newMode);
+    setIsEmailSent(false);
+    setStatus("");
+    setPassword("");
+  };
+
   return (
     <AuthDemoPage
       title="Create Account with Email"
       intro="Classic credentials—users enter details, Supabase secures the rest while getSession + onAuthStateChange keep the UI live."
       steps={[
-        "Toggle between sign up and sign in.",
-        "Submit to watch the session card refresh instantly.",
-        "Sign out to reset the listener.",
+        "Sign up with your email and password.",
+        "Check your email and click the confirmation link.",
+        "Return here to sign in after confirming.",
       ]}
     >
       {!currentUser && (
@@ -119,7 +139,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                     key={option}
                     type="button"
                     aria-pressed={mode === option}
-                    onClick={() => setMode(option)}
+                    onClick={() => handleModeSwitch(option)}
                     className={`rounded-full px-4 py-1 transition ${mode === option
                       ? "bg-blue-500/30 text-white shadow shadow-blue-500/20"
                       : "text-slate-400"
@@ -130,7 +150,26 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 ))}
               </div>
             </div>
-            {mode === "signup" && (
+            
+            {/* Email Confirmation Notice */}
+            {isEmailSent && mode === "signup" && (
+              <div className="mt-6 p-4 rounded-2xl bg-green-500/10 border border-green-500/30">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <div>
+                    <p className="text-green-400 font-medium text-sm">Check your email!</p>
+                    <p className="text-green-300/80 text-xs mt-1">
+                      We sent a confirmation link to <span className="font-medium">{email}</span>. 
+                      Click the link to activate your account, then return here to sign in.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {mode === "signup" && !isEmailSent && (
               <div className="grid grid-cols-2 gap-4 mt-6">
                 <label className="block text-sm font-medium text-slate-200">
                   First Name
@@ -156,39 +195,56 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 </label>
               </div>
             )}
-            <div className="mt-6 space-y-4">
-              <label className="block text-sm font-medium text-slate-200">
-                Email
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-[#0f1f3a] px-3 py-2.5 text-base text-white placeholder-slate-500 shadow-inner shadow-black/30 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/30"
-                  placeholder="you@email.com"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-200">
-                Password
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  minLength={6}
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-[#0f1f3a] px-3 py-2.5 text-base text-white placeholder-slate-500 shadow-inner shadow-black/30 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/30"
-                  placeholder="At least 6 characters"
-                />
-              </label>
-            </div>
-            <button
-              type="submit"
-              className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-blue-600/40"
-            >
-              {mode === "signup" ? "Create account" : "Sign in"}
-            </button>
-            {status && (
-              <p className={`mt-4 text-sm ${status.includes("created") ? "text-green-400 font-medium" : "text-slate-300"}`} role="status" aria-live="polite">
+            
+            {!isEmailSent && (
+              <div className="mt-6 space-y-4">
+                <label className="block text-sm font-medium text-slate-200">
+                  Email
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#0f1f3a] px-3 py-2.5 text-base text-white placeholder-slate-500 shadow-inner shadow-black/30 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/30"
+                    placeholder="you@email.com"
+                  />
+                </label>
+                <label className="block text-sm font-medium text-slate-200">
+                  Password
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                    minLength={6}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#0f1f3a] px-3 py-2.5 text-base text-white placeholder-slate-500 shadow-inner shadow-black/30 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/30"
+                    placeholder="At least 6 characters"
+                  />
+                </label>
+              </div>
+            )}
+            
+            {!isEmailSent && (
+              <button
+                type="submit"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-blue-600/40"
+              >
+                {mode === "signup" ? "Create account" : "Sign in"}
+              </button>
+            )}
+            
+            {isEmailSent && mode === "signup" && (
+              <button
+                type="button"
+                onClick={() => handleModeSwitch("signin")}
+                className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-yellow-500/20 border border-yellow-500/50 px-4 py-2.5 text-sm font-semibold text-yellow-300 transition hover:bg-yellow-500/30"
+              >
+                Go to Sign In
+              </button>
+            )}
+            
+            {status && !isEmailSent && (
+              <p className={`mt-4 text-sm ${status.includes("confirm") || status.includes("Check your email") ? "text-yellow-400" : status.includes("success") ? "text-green-400" : "text-red-400"}`} role="status" aria-live="polite">
                 {status}
               </p>
             )}
