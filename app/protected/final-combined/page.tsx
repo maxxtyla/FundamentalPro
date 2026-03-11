@@ -2,185 +2,186 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import { Calendar, Users, TrendingUp, TrendingDown, AlertTriangle, Activity } from "lucide-react";
+import { Calendar, Users, Activity } from "lucide-react";
 
-// --- NEW: Price Ticker Types ---
-type PriceData = {
-  symbol: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  prevClose: number;
+// --- TRADINGVIEW SYMBOL MAP ---
+const tradingViewMap: Record<string, string> = {
+  // Forex Majors
+  "EURUSD": "FX:EURUSD",
+  "GBPUSD": "FX:GBPUSD",
+  "USDJPY": "FX:USDJPY",
+  "AUDUSD": "FX:AUDUSD",
+  "USDCAD": "FX:USDCAD",
+  "USDCHF": "FX:USDCHF",
+  "NZDUSD": "FX:NZDUSD",
+  // Crosses
+  "EURGBP": "FX:EURGBP",
+  "EURJPY": "FX:EURJPY",
+  "GBPJPY": "FX:GBPJPY",
+  "AUDJPY": "FX:AUDJPY",
+  // Commodities
+  "XAUUSD": "TVC:GOLD",
+  "XAGUSD": "TVC:SILVER",
+  "WTICO": "TVC:USOIL",
+  "BRENT": "TVC:UKOIL",
+  // Indices
+  "US30": "TVC:DJI",
+  "US500": "TVC:SPX",
+  "NAS100": "TVC:IXIC",
+  "UK100": "TVC:UKX",
+  "GER40": "TVC:DAX",
+  "JPN225": "TVC:NI225",
+  // Crypto
+  "BTCUSD": "BINANCE:BTCUSDT",
+  "ETHUSD": "BINANCE:ETHUSDT",
 };
 
-// --- NEW: Ticker Component ---
-function PriceTicker({ symbols, bias }: { symbols: string[]; bias: "bullish" | "bearish" }) {
-  const [prices, setPrices] = useState<Record<string, PriceData>>({});
-  const [loading, setLoading] = useState(true);
-
-  // Map your symbols to Yahoo Finance symbols
-  const symbolMap: Record<string, string> = {
-    "EURUSD": "EURUSD=X",
-    "GBPUSD": "GBPUSD=X",
-    "USDJPY": "USDJPY=X",
-    "AUDUSD": "AUDUSD=X",
-    "USDCAD": "USDCAD=X",
-    "USDCHF": "USDCHF=X",
-    "NZDUSD": "NZDUSD=X",
-    "EURGBP": "EURGBP=X",
-    "XAUUSD": "GC=F", // Gold futures
-    "XAGUSD": "SI=F", // Silver futures
-    "US30": "^DJI",
-    "US500": "^GSPC",
-    "NAS100": "^IXIC",
-    "UK100": "^FTSE",
-    "GER40": "^GDAXI",
-    "WTICO": "CL=F",
-    "BRENT": "BZ=F",
-  };
+// --- TRADINGVIEW TICKER TAPE COMPONENT ---
+function TradingViewTickerTape({ symbols }: { symbols: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchPrices = async () => {
-      try {
-        const yahooSymbols = symbols.map(s => symbolMap[s] || s).join(",");
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbols}?interval=1d&range=5d`
-        );
-        const data = await res.json();
-        
-        const priceMap: Record<string, PriceData> = {};
-        
-        // Handle single or multiple symbols
-        const results = Array.isArray(data.chart.result) ? data.chart.result : [data.chart.result];
-        
-        results.forEach((result: any, idx: number) => {
-          const meta = result.meta;
-          const originalSymbol = symbols[idx];
-          const price = meta.regularMarketPrice;
-          const prevClose = meta.previousClose || meta.chartPreviousClose;
-          
-          priceMap[originalSymbol] = {
-            symbol: originalSymbol,
-            price: price,
-            change: price - prevClose,
-            changePercent: ((price - prevClose) / prevClose) * 100,
-            prevClose: prevClose,
-          };
-        });
-        
-        setPrices(priceMap);
-      } catch (error) {
-        console.error("Price fetch error:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!symbols.length || !containerRef.current) return;
 
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
+    // Clear previous
+    containerRef.current.innerHTML = '';
+
+    const tvSymbols = symbols
+      .map(s => tradingViewMap[s])
+      .filter(Boolean)
+      .map(s => `"${s}"`)
+      .join(',');
+
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      symbols: tvSymbols.split(',').map(s => ({
+        proName: s.replace(/"/g, ''),
+        title: s.replace(/"/g, '').split(':')[1] || s.replace(/"/g, ''),
+      })),
+      showSymbolLogo: true,
+      colorTheme: "dark",
+      isTransparent: true,
+      displayMode: "compact",
+      locale: "en",
+    });
+
+    containerRef.current.appendChild(script);
   }, [symbols]);
 
-  if (loading) {
-    return (
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {symbols.map((s) => (
-          <div key={s} className="flex-shrink-0 w-28 h-16 bg-blue-950/30 rounded-lg animate-pulse" />
-        ))}
-      </div>
-    );
-  }
+  if (!symbols.length) return null;
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-blue-500/30">
-      {symbols.map((symbol) => {
-        const data = prices[symbol];
-        if (!data) return null;
-        
-        const isPositive = data.change >= 0;
-        const biasColor = bias === "bullish" 
-          ? (isPositive ? "border-green-500/40 bg-green-950/20" : "border-green-500/20 bg-green-950/10")
-          : (isPositive ? "border-red-500/20 bg-red-950/10" : "border-red-500/40 bg-red-950/20");
-        
-        return (
-          <div
-            key={symbol}
-            className={`flex-shrink-0 min-w-[120px] p-3 rounded-lg border ${biasColor} backdrop-blur-sm`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-white">{symbol}</span>
-              {isPositive ? (
-                <TrendingUp size={12} className={bias === "bullish" ? "text-green-400" : "text-red-400"} />
-              ) : (
-                <TrendingDown size={12} className={bias === "bullish" ? "text-green-400" : "text-red-400"} />
-              )}
-            </div>
-            <div className="text-sm font-mono font-semibold text-white">
-              {data.price.toFixed(data.price > 1000 ? 2 : data.price > 100 ? 3 : 5)}
-            </div>
-            <div className={`text-[10px] font-mono ${isPositive ? "text-green-400" : "text-red-400"}`}>
-              {isPositive ? "+" : ""}{data.change.toFixed(2)} ({isPositive ? "+" : ""}{data.changePercent.toFixed(2)}%)
-            </div>
-          </div>
-        );
-      })}
+    <div className="tradingview-widget-container w-full overflow-hidden rounded-lg border border-blue-800/30 bg-blue-950/30">
+      <div ref={containerRef} className="tradingview-widget-container__widget h-[60px]" />
     </div>
   );
 }
 
-// --- NEW: Mini Chart Component (Weekly Price Action) ---
-function MiniPriceChart({ symbol }: { symbol: string }) {
-  const [candles, setCandles] = useState<number[]>([]);
-  
+// --- TRADINGVIEW SINGLE SYMBOL INFO ---
+function TradingViewSymbolInfo({ symbol }: { symbol: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tvSymbol = tradingViewMap[symbol] || `FX:${symbol}`;
+
   useEffect(() => {
-    const fetchWeekly = async () => {
-      try {
-        const symbolMap: Record<string, string> = {
-          "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X",
-          "XAUUSD": "GC=F", "US30": "^DJI", "US500": "^GSPC",
-        };
-        const yahooSym = symbolMap[symbol] || symbol;
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=1d&range=1mo`
-        );
-        const data = await res.json();
-        const closes = data.chart.result[0].indicators.quote[0].close.slice(-5);
-        setCandles(closes.filter((c: number) => c !== null));
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    fetchWeekly();
-  }, [symbol]);
+    if (!containerRef.current) return;
+    
+    containerRef.current.innerHTML = '';
+    
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-symbol-info.js';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      symbol: tvSymbol,
+      colorTheme: "dark",
+      isTransparent: true,
+      locale: "en",
+      width: "100%",
+    });
 
-  if (candles.length < 2) return null;
-
-  const min = Math.min(...candles);
-  const max = Math.max(...candles);
-  const range = max - min || 1;
-  
-  // Generate SVG path
-  const points = candles.map((c, i) => {
-    const x = (i / (candles.length - 1)) * 100;
-    const y = 100 - ((c - min) / range) * 100;
-    return `${x},${y}`;
-  }).join(" ");
-
-  const isUp = candles[candles.length - 1] >= candles[0];
+    containerRef.current.appendChild(script);
+  }, [symbol, tvSymbol]);
 
   return (
-    <svg viewBox="0 0 100 100" className="w-16 h-8 opacity-60">
-      <polyline
-        fill="none"
-        stroke={isUp ? "#4ade80" : "#f87171"}
-        strokeWidth="3"
-        points={points}
-      />
-    </svg>
+    <div className="tradingview-widget-container w-full h-[140px] overflow-hidden rounded-lg border border-blue-800/30 bg-blue-950/30">
+      <div ref={containerRef} className="tradingview-widget-container__widget w-full h-full" />
+    </div>
+  );
+}
+
+// --- TRADINGVIEW MINI CHART (SPARKLINE) ---
+function TradingViewMiniChart({ symbol }: { symbol: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tvSymbol = tradingViewMap[symbol] || `FX:${symbol}`;
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    containerRef.current.innerHTML = '';
+    
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      symbol: tvSymbol,
+      width: "100%",
+      height: "100%",
+      locale: "en",
+      dateRange: "1M",
+      colorTheme: "dark",
+      isTransparent: true,
+      autosize: true,
+      largeChartUrl: "",
+    });
+
+    containerRef.current.appendChild(script);
+  }, [symbol, tvSymbol]);
+
+  return (
+    <div className="tradingview-widget-container w-24 h-16 overflow-hidden rounded opacity-80 hover:opacity-100 transition-opacity">
+      <div ref={containerRef} className="tradingview-widget-container__widget w-full h-full" />
+    </div>
+  );
+}
+
+// --- TRADINGVIEW TECHNICAL ANALYSIS WIDGET ---
+function TradingViewTechnicalAnalysis({ symbol }: { symbol: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tvSymbol = tradingViewMap[symbol] || `FX:${symbol}`;
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    containerRef.current.innerHTML = '';
+    
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      interval: "1D",
+      width: "100%",
+      isTransparent: true,
+      height: "100%",
+      symbol: tvSymbol,
+      showIntervalTabs: false,
+      colorTheme: "dark",
+      locale: "en",
+    });
+
+    containerRef.current.appendChild(script);
+  }, [symbol, tvSymbol]);
+
+  return (
+    <div className="tradingview-widget-container w-full h-[280px] overflow-hidden rounded-lg border border-blue-800/30 bg-blue-950/30">
+      <div ref={containerRef} className="tradingview-widget-container__widget w-full h-full" />
+    </div>
   );
 }
 
 // --- MAIN PAGE COMPONENT ---
+import { useRef } from "react";
+
 type Row = {
   symbol: string;
   cot_score: number;
@@ -211,6 +212,7 @@ export default function CombinedTopSetupsPage() {
   const [instrumentFilter, setInstrumentFilter] = useState<string>("All");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [lastUpdated, setLastUpdated] = useState<string>("");
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -254,18 +256,13 @@ export default function CombinedTopSetupsPage() {
     setBiasFilter("All");
     setInstrumentFilter("All");
     setSortOrder("desc");
+    setSelectedSymbol(null);
   }
 
-  // Get top symbols by bias for ticker
-  const bullishSymbols = data
-    .filter(r => r.overall_bias.includes("Bullish"))
-    .slice(0, 6)
-    .map(r => r.symbol);
-
-  const bearishSymbols = data
-    .filter(r => r.overall_bias.includes("Bearish"))
-    .slice(0, 6)
-    .map(r => r.symbol);
+  // Get symbols for ticker tape
+  const topSymbols = data.slice(0, 10).map(r => r.symbol);
+  const bullishSymbols = data.filter(r => r.overall_bias.includes("Bullish")).slice(0, 5).map(r => r.symbol);
+  const bearishSymbols = data.filter(r => r.overall_bias.includes("Bearish")).slice(0, 5).map(r => r.symbol);
 
   return (
     <div className="space-y-6 px-4 sm:px-6 lg:px-0">
@@ -285,34 +282,69 @@ export default function CombinedTopSetupsPage() {
         )}
       </div>
 
-      {/* NEW: LIVE PRICE TICKERS */}
-      {(bullishSymbols.length > 0 || bearishSymbols.length > 0) && (
-        <div className="space-y-3">
-          {/* Bullish Tickers */}
-          {bullishSymbols.length > 0 && (
-            <div className="bg-green-950/20 border border-green-500/20 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity size={14} className="text-green-400" />
-                <span className="text-xs font-bold text-green-400 uppercase tracking-wider">
-                  Bullish Setups — Live Prices
-                </span>
-              </div>
-              <PriceTicker symbols={bullishSymbols} bias="bullish" />
+      {/* TRADINGVIEW TICKER TAPE - TOP 10 SETUPS */}
+      {topSymbols.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Activity size={14} className="text-yellow-400" />
+            <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">
+              Live Market Tape — Top Setups
+            </span>
+          </div>
+          <TradingViewTickerTape symbols={topSymbols} />
+        </div>
+      )}
+
+      {/* BULLISH & BEARISH TICKER TAPES */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {bullishSymbols.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-xs font-bold text-green-400 uppercase tracking-wider">
+                Bullish Setups Tape
+              </span>
             </div>
-          )}
-          
-          {/* Bearish Tickers */}
-          {bearishSymbols.length > 0 && (
-            <div className="bg-red-950/20 border border-red-500/20 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity size={14} className="text-red-400" />
-                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                  Bearish Setups — Live Prices
-                </span>
-              </div>
-              <PriceTicker symbols={bearishSymbols} bias="bearish" />
+            <div className="rounded-lg border border-green-500/20 overflow-hidden">
+              <TradingViewTickerTape symbols={bullishSymbols} />
             </div>
-          )}
+          </div>
+        )}
+        
+        {bearishSymbols.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                Bearish Setups Tape
+              </span>
+            </div>
+            <div className="rounded-lg border border-red-500/20 overflow-hidden">
+              <TradingViewTickerTape symbols={bearishSymbols} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SELECTED SYMBOL DETAIL VIEW */}
+      {selectedSymbol && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 animate-fadeIn">
+          <div className="lg:col-span-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-white">{selectedSymbol} — Technical Analysis</span>
+              <button 
+                onClick={() => setSelectedSymbol(null)}
+                className="text-xs text-blue-400 hover:text-white transition"
+              >
+                Close ✕
+              </button>
+            </div>
+            <TradingViewTechnicalAnalysis symbol={selectedSymbol} />
+          </div>
+          <div>
+            <div className="text-sm font-bold text-white mb-2">Symbol Info</div>
+            <TradingViewSymbolInfo symbol={selectedSymbol} />
+          </div>
         </div>
       )}
 
@@ -393,12 +425,13 @@ export default function CombinedTopSetupsPage() {
           data.map((row) => (
             <div 
               key={row.symbol} 
-              className="bg-blue-950/50 border border-blue-800/30 rounded-xl p-4 space-y-3"
+              onClick={() => setSelectedSymbol(row.symbol)}
+              className="bg-blue-950/50 border border-blue-800/30 rounded-xl p-4 space-y-3 cursor-pointer hover:border-yellow-400/30 transition"
             >
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex items-center gap-3">
                   <span className="font-bold text-white text-lg">{row.symbol}</span>
-                  <MiniPriceChart symbol={row.symbol} />
+                  <TradingViewMiniChart symbol={row.symbol} />
                 </div>
                 <BiasBadge bias={row.overall_bias} />
               </div>
@@ -410,7 +443,6 @@ export default function CombinedTopSetupsPage() {
                       ? "bg-green-500/20 text-green-300 border-green-500/30"
                       : "bg-red-500/20 text-red-300 border-red-500/30"
                   }`}>
-                    <AlertTriangle size={10} className="inline mr-1"/>
                     Contrarian {row.sentiment_data.contrarian_signal}
                   </span>
                 )}
@@ -459,6 +491,10 @@ export default function CombinedTopSetupsPage() {
                   {row.combined_total_score > 0 ? "+" : ""}{row.combined_total_score}
                 </div>
               </div>
+              
+              <p className="text-[10px] text-blue-400 text-center">
+                Tap for detailed technical analysis
+              </p>
             </div>
           ))
         )}
@@ -471,7 +507,7 @@ export default function CombinedTopSetupsPage() {
             <thead className="bg-blue-900/50 text-blue-200 uppercase text-xs">
               <tr>
                 <th className="px-4 py-4 text-left font-semibold">Instrument</th>
-                <th className="px-4 py-4 text-center font-semibold">5D Trend</th>
+                <th className="px-4 py-4 text-center font-semibold">Live Chart</th>
                 <th className="px-4 py-4 text-center font-semibold">COT</th>
                 <th className="px-4 py-4 text-center font-semibold">Macro</th>
                 <th className="px-4 py-4 text-center font-semibold">
@@ -499,14 +535,15 @@ export default function CombinedTopSetupsPage() {
                 data.map((row) => (
                   <tr
                     key={row.symbol}
-                    className="border-t border-blue-800/30 hover:bg-blue-900/30 transition"
+                    onClick={() => setSelectedSymbol(row.symbol)}
+                    className="border-t border-blue-800/30 hover:bg-blue-900/30 transition cursor-pointer"
                   >
                     <td className="px-4 py-4 font-semibold text-white">
                       {row.symbol}
                     </td>
                     
                     <td className="px-4 py-4">
-                      <MiniPriceChart symbol={row.symbol} />
+                      <TradingViewMiniChart symbol={row.symbol} />
                     </td>
 
                     <td className={`px-4 py-4 text-center ${getScoreColor(row.cot_score)}`}>
@@ -553,6 +590,16 @@ export default function CombinedTopSetupsPage() {
           </table>
         </div>
       </div>
+      
+      <style jsx>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease forwards;
+        }
+      `}</style>
     </div>
   );
 }
