@@ -13,7 +13,7 @@ type EmailPasswordDemoProps = {
 type Mode = "signup" | "signin"
 
 export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
-  const [mode, setMode] = useState("signup");
+  const [mode, setMode] = useState<Mode>("signup");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -59,7 +59,10 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
       if (error) {
         setStatus(error.message);
       } else {
-        setStatus("Check your inbox to confirm the new account.");
+        // Clear password and switch to sign in mode
+        setPassword("");
+        setMode("signin");
+        setStatus("Account created! Please sign in");
       }
     } else {
       const { error, data } = await supabase.auth.signInWithPassword({
@@ -185,7 +188,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               {mode === "signup" ? "Create account" : "Sign in"}
             </button>
             {status && (
-              <p className="mt-4 text-sm text-slate-300" role="status" aria-live="polite">
+              <p className={`mt-4 text-sm ${status.includes("created") ? "text-green-400 font-medium" : "text-slate-300"}`} role="status" aria-live="polite">
                 {status}
               </p>
             )}
