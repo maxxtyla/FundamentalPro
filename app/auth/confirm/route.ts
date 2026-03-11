@@ -16,11 +16,14 @@ export async function GET(request: NextRequest) {
     });
 
     if (!error) {
-      // Email confirmed successfully - redirect to sign in page with success message
+      // Email confirmed successfully - sign out to force manual login
+      await supabase.auth.signOut();
+      
+      // Redirect to sign in page with success message
       return NextResponse.redirect(`${requestUrl.origin}/email-password?confirmed=true`);
     }
   }
 
-  // Error case - redirect with error parameter
+  // Error case
   return NextResponse.redirect(`${requestUrl.origin}/email-password?error=confirmation_failed`);
 }
