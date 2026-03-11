@@ -4,13 +4,13 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { User } from "@supabase/supabase-js";
 import { useState, useEffect } from "react";
 import { AuthDemoPage } from "../components/AuthDemoPage";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type EmailPasswordDemoProps = {
   user: User | null;
 };
 
-type Mode = "signup" | "signin"
+type Mode = "signup" | "signin";
 
 export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
   const [mode, setMode] = useState<Mode>("signup");
@@ -23,6 +23,21 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
   const supabase = getSupabaseBrowserClient();
   const [currentUser, setCurrentUser] = useState<User | null>(user);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Handle email confirmation redirect
+  useEffect(() => {
+    const confirmed = searchParams.get("confirmed");
+    const error = searchParams.get("error");
+
+    if (confirmed === "true") {
+      setMode("signin");
+      setStatus("Email confirmed successfully! You can now sign in.");
+    } else if (error === "confirmation_failed") {
+      setMode("signup");
+      setStatus("Email confirmation failed. Please try signing up again or contact support.");
+    }
+  }, [searchParams]);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -40,22 +55,22 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, [supabase])
+  }, [supabase]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (mode == "signup") {
+    if (mode === "signup") {
       const { error, data } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/welcome`,
+          emailRedirectTo: `${window.location.origin}/auth/confirm`,
           data: {
             first_name: firstName,
             last_name: lastName,
           },
-        }
+        },
       });
       if (error) {
         setStatus(error.message);
@@ -140,27 +155,62 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                     type="button"
                     aria-pressed={mode === option}
                     onClick={() => handleModeSwitch(option)}
-                    className={`rounded-full px-4 py-1 transition ${mode === option
-                      ? "bg-blue-500/30 text-white shadow shadow-blue-500/20"
-                      : "text-slate-400"
-                      }`}
+                    className={`rounded-full px-4 py-1 transition ${
+                      mode === option
+                        ? "bg-blue-500/30 text-white shadow shadow-blue-500/20"
+                        : "text-slate-400"
+                    }`}
                   >
                     {option === "signup" ? "Sign up" : "Sign in"}
                   </button>
                 ))}
               </div>
             </div>
-            
-            {/* Email Confirmation Notice */}
-            {isEmailSent && mode === "signup" && (
+
+            {/* Success message after email confirmation */}
+            {searchParams.get("confirmed") === "true" && (
               <div className="mt-6 p-4 rounded-2xl bg-green-500/10 border border-green-500/30">
                 <div className="flex items-start gap-3">
                   <svg className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-green-400 font-medium text-sm">Email confirmed!</p>
+                    <p className="text-green-300/80 text-xs mt-1">
+                      Your account is now active. Please sign in with your credentials.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Error message after failed confirmation */}
+            {searchParams.get("error") === "confirmation_failed" && (
+              <div className="mt-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-red-400 font-medium text-sm">Confirmation failed</p>
+                    <p className="text-red-300/80 text-xs mt-1">
+                      The confirmation link may have expired or is invalid. Please try signing up again.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Email Confirmation Notice - after signup */}
+            {isEmailSent && mode === "signup" && (
+              <div className="mt-6 p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                   <div>
-                    <p className="text-green-400 font-medium text-sm">Check your email!</p>
-                    <p className="text-green-300/80 text-xs mt-1">
+                    <p className="text-blue-400 font-medium text-sm">Check your email!</p>
+                    <p className="text-blue-300/80 text-xs mt-1">
                       We sent a confirmation link to <span className="font-medium">{email}</span>. 
                       Click the link to activate your account, then return here to sign in.
                     </p>
@@ -169,7 +219,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               </div>
             )}
 
-            {mode === "signup" && !isEmailSent && (
+            {mode === "signup" && !isEmailSent && searchParams.get("confirmed") !== "true" && (
               <div className="grid grid-cols-2 gap-4 mt-6">
                 <label className="block text-sm font-medium text-slate-200">
                   First Name
@@ -195,8 +245,8 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 </label>
               </div>
             )}
-            
-            {!isEmailSent && (
+
+            {!isEmailSent && searchParams.get("confirmed") !== "true" && (
               <div className="mt-6 space-y-4">
                 <label className="block text-sm font-medium text-slate-200">
                   Email
@@ -223,8 +273,8 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 </label>
               </div>
             )}
-            
-            {!isEmailSent && (
+
+            {!isEmailSent && searchParams.get("confirmed") !== "true" && (
               <button
                 type="submit"
                 className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-blue-600/40"
@@ -232,7 +282,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 {mode === "signup" ? "Create account" : "Sign in"}
               </button>
             )}
-            
+
             {isEmailSent && mode === "signup" && (
               <button
                 type="button"
@@ -242,9 +292,19 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
                 Go to Sign In
               </button>
             )}
-            
-            {status && !isEmailSent && (
-              <p className={`mt-4 text-sm ${status.includes("confirm") || status.includes("Check your email") ? "text-yellow-400" : status.includes("success") ? "text-green-400" : "text-red-400"}`} role="status" aria-live="polite">
+
+            {status && !isEmailSent && searchParams.get("confirmed") !== "true" && (
+              <p
+                className={`mt-4 text-sm ${
+                  status.includes("confirm") || status.includes("Check your email")
+                    ? "text-yellow-400"
+                    : status.includes("success")
+                    ? "text-green-400"
+                    : "text-red-400"
+                }`}
+                role="status"
+                aria-live="polite"
+              >
                 {status}
               </p>
             )}
@@ -253,13 +313,13 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
       )}
       <section className="rounded-[28px] border border-white/10 bg-white/5 p-7 text-slate-200 shadow-[0_25px_70px_rgba(2,6,23,0.65)] backdrop-blur">
         <div className="flex items-start justify-between gap-4">
-          <div>
-          </div>
+          <div></div>
           <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${currentUser
-              ? "bg-blue-500/20 text-yellow-200"
-              : "bg-white/10 text-slate-400"
-              }`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              currentUser
+                ? "bg-blue-500/20 text-yellow-200"
+                : "bg-white/10 text-slate-400"
+            }`}
           >
             {currentUser ? "Active" : "Idle"}
           </span>
@@ -274,7 +334,8 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
               <div className="flex items-center justify-between gap-6">
                 <dt className="text-slate-400">Full Name</dt>
                 <dd>
-                  {currentUser.user_metadata?.first_name} {currentUser.user_metadata?.last_name}
+                  {currentUser.user_metadata?.first_name}{" "}
+                  {currentUser.user_metadata?.last_name}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-6">
@@ -298,9 +359,7 @@ export default function EmailPasswordDemo({ user }: EmailPasswordDemoProps) {
             </button>
           </>
         ) : (
-          <p>
-            Get Started With your Email.
-          </p>
+          <p>Get Started With your Email.</p>
         )}
       </section>
     </AuthDemoPage>
