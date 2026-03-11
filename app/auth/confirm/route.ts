@@ -6,7 +6,6 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const token_hash = requestUrl.searchParams.get("token_hash");
   const type = requestUrl.searchParams.get("type");
-  const next = requestUrl.searchParams.get("next") || "/email-password";
 
   if (token_hash && type) {
     const supabase = await createSupabaseServerClient();
@@ -17,11 +16,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!error) {
-      // Email confirmed successfully - redirect to sign in page with success param
+      // Email confirmed successfully - redirect to sign in page with success message
       return NextResponse.redirect(`${requestUrl.origin}/email-password?confirmed=true`);
     }
   }
 
-  // Error case
+  // Error case - redirect with error parameter
   return NextResponse.redirect(`${requestUrl.origin}/email-password?error=confirmation_failed`);
 }
