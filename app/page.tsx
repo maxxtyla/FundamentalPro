@@ -207,7 +207,7 @@ function GetStartedSection() {
 
       {/* Get Started Card */}
       <div className="flex justify-center">
-        <Link href="/auth/email-password" className="group w-full max-w-sm">
+        <Link href="/email-password" className="group w-full max-w-sm">
           <div className="relative overflow-hidden rounded-2xl
                           border border-yellow-400/50
                           bg-gradient-to-br from-yellow-400/10 via-yellow-500/5 to-amber-600/10
