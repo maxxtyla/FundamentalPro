@@ -90,31 +90,43 @@ export async function GET(request: Request) {
       let sentimentMeta = null;
       
       if (sentiment) {
-        if (sentiment.long_percent >= 70) {
-          sentimentScore = 2;
-          sentimentMeta = {
-            long_percent: sentiment.long_percent,
-            short_percent: sentiment.short_percent,
-            is_contrarian: true,
-            contrarian_signal: "bullish"
-          };
-        } else if (sentiment.short_percent >= 70) {
-          sentimentScore = -2;
-          sentimentMeta = {
-            long_percent: sentiment.long_percent,
-            short_percent: sentiment.short_percent,
-            is_contrarian: true,
-            contrarian_signal: "bearish"
-          };
-        } else {
-          sentimentMeta = {
-            long_percent: sentiment.long_percent,
-            short_percent: sentiment.short_percent,
-            is_contrarian: false,
-            contrarian_signal: null
-          };
-        }
-      }
+         const longPercent = sentiment.long_percent;
+  const shortPercent = sentiment.short_percent;
+     if (longPercent >= 70) {
+    // Retail is extremely long → Market will likely drop → BEARISH signal
+    sentimentScore = -2;
+    sentimentMeta = {
+      long_percent: longPercent,
+      short_percent: shortPercent,
+      is_contrarian: true,
+      contrarian_signal: "bearish",  // We go short when retail is long
+      signal_strength: longPercent >= 80 ? "extreme" : "strong",
+      reasoning: `Retail ${longPercent}% long - contrarian bearish signal`
+    };
+  } else if (shortPercent >= 70) {
+    // Retail is extremely short → Market will likely rise → BULLISH signal
+    sentimentScore = 2;
+    sentimentMeta = {
+      long_percent: longPercent,
+      short_percent: shortPercent,
+      is_contrarian: true,
+      contrarian_signal: "bullish",  // We go long when retail is short
+      signal_strength: shortPercent >= 80 ? "extreme" : "strong",
+      reasoning: `Retail ${shortPercent}% short - contrarian bullish signal`
+    };
+  } else {
+    // Not extreme - follow retail sentiment (momentum)
+    sentimentScore = longPercent > shortPercent ? 1 : -1;
+    sentimentMeta = {
+      long_percent: longPercent,
+      short_percent: shortPercent,
+      is_contrarian: false,
+      contrarian_signal: null,
+      signal_strength: "moderate",
+      reasoning: `Retail mixed ${longPercent}%/${shortPercent}% - momentum follow`
+    };
+  }
+}
 
       // SEASONALITY SCORING (from DB)
       const seasonality = seasonalityData[symbol];
@@ -211,54 +223,24 @@ async function fetchSeasonalityFromDB(symbols: string[]) {
   console.log(`Loaded ${Object.keys(seasonalityMap).length} seasonality records from DB`);
   return seasonalityMap;
 }
-
 async function fetchSentimentData() {
   try {
-    // Check cache first
-    const { data: cached } = await getSupabaseAdmin()
-      .from("retail_sentiment_cache")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (cached && (new Date().getTime() - new Date(cached.created_at).getTime()) < 5 * 60 * 1000) {
-      return cached.data;
-    }
-
-    // Fetch from Myfxbook
-    const loginRes = await fetch(
-      `https://www.myfxbook.com/api/login.json?email=${encodeURIComponent(MYFXBOOK_EMAIL)}&password=${encodeURIComponent(MYFXBOOK_PASSWORD)}`
-    );
-    const loginJson = await loginRes.json();
-
-    if (loginJson.error) throw new Error("Myfxbook login failed");
-
-    const dataRes = await fetch(
-      `https://www.myfxbook.com/api/get-community-outlook.json?session=${loginJson.session}`
-    );
-    const dataJson = await dataRes.json();
-
-    fetch(`https://www.myfxbook.com/api/logout.json?session=${loginJson.session}`).catch(() => {});
-
-    if (dataJson.error) throw new Error("Myfxbook data fetch failed");
-
-    const sentiment = dataJson.symbols
-      .filter((sym: any) => TRACKED_SYMBOLS.includes(sym.name))
-      .map((sym: any) => ({
-        pair: sym.name,
-        long_percent: sym.longPercentage,
-        short_percent: sym.shortPercentage,
-        long_positions: sym.longPositions,
-        short_positions: sym.shortPositions,
-      }));
-
-    await getSupabaseAdmin().from("retail_sentiment_cache").insert({
-      data: sentiment,
-      created_at: new Date().toISOString()
+    // Call YOUR sentiment API instead of Myfxbook directly
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'https://fundamentalpro.vercel.app';
+    
+    const response = await fetch(`${baseUrl}/api/sentiment`, {
+      headers: { 'Accept': 'application/json' }
     });
-
-    return sentiment;
+    
+    if (!response.ok) {
+      throw new Error(`Sentiment API returned ${response.status}`);
+    }
+    
+    const result = await response.json();
+    return result.data || [];
+    
   } catch (error) {
     console.error("Sentiment fetch error:", error);
     return [];
