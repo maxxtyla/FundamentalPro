@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getSentimentData } from "@/lib/sentiment/fetcher";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -214,29 +215,11 @@ async function fetchSeasonalityFromDB(symbols: string[]) {
   return seasonalityMap;
 }
 
-// Fetch sentiment from YOUR sentiment API
 async function fetchSentimentData() {
   try {
-    // Use absolute URL for server-side fetch
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://fundamentalpro.vercel.app';
-    
-    console.log(`Fetching sentiment from ${baseUrl}/api/sentiment`);
-    
-    const response = await fetch(`${baseUrl}/api/sentiment`, {
-      headers: { 'Accept': 'application/json' },
-      next: { revalidate: 0 } // Don't cache this fetch
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Sentiment API returned ${response.status}: ${response.statusText}`);
-    }
-    
-    const result = await response.json();
-    console.log(`Sentiment API returned ${result.data?.length || 0} records`);
-    return result.data || [];
-    
+    return await getSentimentData();
   } catch (error) {
-    console.error("Sentiment fetch error:", error);
+    console.error("Failed to get sentiment:", error);
     return [];
   }
 }
