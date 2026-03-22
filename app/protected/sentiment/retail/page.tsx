@@ -23,7 +23,6 @@ type SentimentResponse = {
 type BiasType = "bullish" | "bearish" | "contrarian_bullish" | "contrarian_bearish";
 
 export default function SentimentPage() {
-  // ✅ Initialize with empty array to prevent undefined
   const [data, setData] = useState<SentimentRow[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("Never");
   const [cacheStatus, setCacheStatus] = useState<string>("");
@@ -31,7 +30,6 @@ export default function SentimentPage() {
   const [activeFilter, setActiveFilter] = useState<
     "none" | "long70" | "short70" | "sortLongs" | "sortShorts" | "contrarian"
   >("none");
-  // ✅ Add loading state to prevent rendering before data loads
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -51,7 +49,6 @@ export default function SentimentPage() {
       
       const json: SentimentResponse = await res.json();
       
-      // ✅ Safety check - ensure data is an array
       if (json.data && Array.isArray(json.data)) {
         setData(json.data);
         setLastUpdated(json.last_updated || new Date().toISOString());
@@ -61,7 +58,6 @@ export default function SentimentPage() {
       }
     } catch (err) {
       console.error("Error fetching sentiment data:", err);
-      // ✅ Ensure data is empty array on error, not undefined
       setData([]);
     } finally {
       setIsLoading(false);
@@ -80,12 +76,16 @@ export default function SentimentPage() {
     return "bearish";
   }
 
-  // ✅ Safety check with optional chaining and default to empty array
+  // Safe number formatter
+  function formatPrice(price: number | null | undefined): string {
+    if (price === null || price === undefined || isNaN(price)) return "N/A";
+    return price.toFixed(5);
+  }
+
   const filteredData = (data || []).filter((row) =>
     row?.pair?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Apply filters safely
   let displayData = [...filteredData];
   
   if (activeFilter === "long70")
@@ -101,7 +101,6 @@ export default function SentimentPage() {
   if (activeFilter === "sortShorts")
     displayData = [...displayData].sort((a, b) => b.short_percent - a.short_percent);
 
-  // ✅ Show loading state
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen text-white">
@@ -205,7 +204,6 @@ export default function SentimentPage() {
           </div>
         ) : (
           displayData.map((row) => {
-            // ✅ Safety check for row data
             if (!row || !row.pair) return null;
             
             const bias = getContrarianBias(row.long_percent || 0, row.short_percent || 0);
@@ -243,7 +241,11 @@ export default function SentimentPage() {
             };
 
             const config = biasConfig[bias];
-            const hasPriceData = row.avg_long_price || row.avg_short_price;
+            
+            // ✅ Safe check for price data existence
+            const hasLongPrice = row.avg_long_price !== null && row.avg_long_price !== undefined;
+            const hasShortPrice = row.avg_short_price !== null && row.avg_short_price !== undefined;
+            const hasPriceData = hasLongPrice || hasShortPrice;
 
             return (
               <div
@@ -273,13 +275,13 @@ export default function SentimentPage() {
                       Average Entry Prices
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      {row.avg_long_price && (
+                      {hasLongPrice && (
                         <div>
                           <div className="text-xs text-blue-400 mb-1">Avg Long</div>
                           <div className="text-sm font-semibold text-white">
-                            {row.avg_long_price.toFixed(5)}
+                            {formatPrice(row.avg_long_price)}
                           </div>
-                          {row.long_price_distance !== null && (
+                          {row.long_price_distance !== null && row.long_price_distance !== undefined && (
                             <div className={`text-xs ${
                               row.long_price_distance > 0 ? 'text-green-400' : 'text-red-400'
                             }`}>
@@ -289,13 +291,13 @@ export default function SentimentPage() {
                           )}
                         </div>
                       )}
-                      {row.avg_short_price && (
+                      {hasShortPrice && (
                         <div>
                           <div className="text-xs text-yellow-400/70 mb-1">Avg Short</div>
                           <div className="text-sm font-semibold text-white">
-                            {row.avg_short_price.toFixed(5)}
+                            {formatPrice(row.avg_short_price)}
                           </div>
-                          {row.short_price_distance !== null && (
+                          {row.short_price_distance !== null && row.short_price_distance !== undefined && (
                             <div className={`text-xs ${
                               row.short_price_distance > 0 ? 'text-green-400' : 'text-red-400'
                             }`}>
