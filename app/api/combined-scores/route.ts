@@ -105,7 +105,7 @@ export async function GET(request: Request) {
           };
         } else {
           // Not extreme - follow retail sentiment (momentum)
-          sentimentScore = longPercent > shortPercent ? 1 : -1;
+          sentimentScore = longPercent > shortPercent ? -1 : 1;
           sentimentMeta = {
             long_percent: longPercent,
             short_percent: shortPercent,
