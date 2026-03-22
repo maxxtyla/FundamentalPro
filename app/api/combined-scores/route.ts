@@ -9,7 +9,6 @@ function getSupabaseAdmin() {
     if (process.env.NODE_ENV === "production") {
       throw new Error("Supabase environment variables are missing");
     }
-    // Dummy client for build time/development
     return createClient("https://dummy.supabase.co", "dummy-key");
   }
 
@@ -21,30 +20,11 @@ function getSupabaseAdmin() {
   });
 }
 
-const MYFXBOOK_EMAIL = process.env.MYFXBOOK_EMAIL!;
-const MYFXBOOK_PASSWORD = process.env.MYFXBOOK_PASSWORD!;
-
-// Symbol mapping: Myfxbook/Seasonality API -> Your combined scores table
-const SENTIMENT_SYMBOL_MAP: Record<string, string> = {
-  "XAUUSD": "GOLD",
-  "XAGUSD": "SILVER"
-};
-
-// Reverse mapping for lookup
+// Symbol mapping: Your DB symbols -> Myfxbook API symbols
 const REVERSE_SYMBOL_MAP: Record<string, string> = {
   "GOLD": "XAUUSD",
   "SILVER": "XAGUSD"
 };
-
-const TRACKED_SYMBOLS = [
-  "AUDCAD", "AUDCHF", "AUDJPY", "AUDNZD", "AUDUSD",
-  "CADCHF", "CADJPY", "CHFJPY",
-  "EURAUD", "EURCAD", "EURCHF", "EURGBP", "EURJPY", "EURNZD", "EURUSD",
-  "GBPAUD", "GBPCAD", "GBPCHF", "GBPJPY", "GBPNZD", "GBPUSD",
-  "NZDCAD", "NZDCHF", "NZDJPY", "NZDUSD",
-  "USDCAD", "USDCHF", "USDJPY",
-  "XAGUSD", "XAUUSD"
-];
 
 const CACHE_DURATION_MS = 5 * 60 * 1000;
 let cache: { data: any; timestamp: number } | null = null;
@@ -68,65 +48,75 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No base data found" }, { status: 404 });
     }
 
-    // 2. Fetch sentiment
+    // 2. Fetch sentiment from YOUR sentiment API
     const sentimentData = await fetchSentimentData();
+    console.log(`Fetched ${sentimentData.length} sentiment records`);
 
     // 3. Fetch seasonality from DATABASE
     const seasonalityData = await fetchSeasonalityFromDB(baseScores.map((r: any) => r.symbol));
 
     // 4. Calculate scores
-    const currentMonth = new Date().getMonth(); // 0-11
+    const currentMonth = new Date().getMonth();
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
     const processedData = baseScores.map((row: any) => {
       const symbol = row.symbol;
       
-      // Map symbol for sentiment lookup (GOLD -> XAUUSD)
+      // Map symbol for sentiment lookup (GOLD -> XAUUSD, SILVER -> XAGUSD, others stay same)
       const sentimentSymbol = REVERSE_SYMBOL_MAP[symbol] || symbol;
       
-      // SENTIMENT SCORING
+      // DEBUG: Log the lookup
+      console.log(`Looking up sentiment for ${symbol} -> ${sentimentSymbol}`);
+      
+      // SENTIMENT SCORING - Contrarian logic
       const sentiment = sentimentData.find((s: any) => s.pair === sentimentSymbol);
       let sentimentScore = 0;
       let sentimentMeta = null;
       
       if (sentiment) {
-         const longPercent = sentiment.long_percent;
-  const shortPercent = sentiment.short_percent;
-     if (longPercent >= 70) {
-    // Retail is extremely long → Market will likely drop → BEARISH signal
-    sentimentScore = -2;
-    sentimentMeta = {
-      long_percent: longPercent,
-      short_percent: shortPercent,
-      is_contrarian: true,
-      contrarian_signal: "bearish",  // We go short when retail is long
-      signal_strength: longPercent >= 80 ? "extreme" : "strong",
-      reasoning: `Retail ${longPercent}% long - contrarian bearish signal`
-    };
-  } else if (shortPercent >= 70) {
-    // Retail is extremely short → Market will likely rise → BULLISH signal
-    sentimentScore = 2;
-    sentimentMeta = {
-      long_percent: longPercent,
-      short_percent: shortPercent,
-      is_contrarian: true,
-      contrarian_signal: "bullish",  // We go long when retail is short
-      signal_strength: shortPercent >= 80 ? "extreme" : "strong",
-      reasoning: `Retail ${shortPercent}% short - contrarian bullish signal`
-    };
-  } else {
-    // Not extreme - follow retail sentiment (momentum)
-    sentimentScore = longPercent > shortPercent ? 1 : -1;
-    sentimentMeta = {
-      long_percent: longPercent,
-      short_percent: shortPercent,
-      is_contrarian: false,
-      contrarian_signal: null,
-      signal_strength: "moderate",
-      reasoning: `Retail mixed ${longPercent}%/${shortPercent}% - momentum follow`
-    };
-  }
-}
+        const longPercent = sentiment.long_percent;
+        const shortPercent = sentiment.short_percent;
+        
+        console.log(`Found sentiment for ${sentimentSymbol}: ${longPercent}% long, ${shortPercent}% short`);
+        
+        // CONTRARIAN SIGNALS (Retail is wrong at extremes)
+        if (longPercent >= 70) {
+          // Retail is extremely long → Market will likely drop → BEARISH signal
+          sentimentScore = -2;
+          sentimentMeta = {
+            long_percent: longPercent,
+            short_percent: shortPercent,
+            is_contrarian: true,
+            contrarian_signal: "bearish",
+            signal_strength: longPercent >= 80 ? "extreme" : "strong",
+            reasoning: `Retail ${longPercent}% long - contrarian bearish signal`
+          };
+        } else if (shortPercent >= 70) {
+          // Retail is extremely short → Market will likely rise → BULLISH signal
+          sentimentScore = 2;
+          sentimentMeta = {
+            long_percent: longPercent,
+            short_percent: shortPercent,
+            is_contrarian: true,
+            contrarian_signal: "bullish",
+            signal_strength: shortPercent >= 80 ? "extreme" : "strong",
+            reasoning: `Retail ${shortPercent}% short - contrarian bullish signal`
+          };
+        } else {
+          // Not extreme - follow retail sentiment (momentum)
+          sentimentScore = longPercent > shortPercent ? 1 : -1;
+          sentimentMeta = {
+            long_percent: longPercent,
+            short_percent: shortPercent,
+            is_contrarian: false,
+            contrarian_signal: null,
+            signal_strength: "moderate",
+            reasoning: `Retail mixed ${longPercent}%/${shortPercent}% - momentum follow`
+          };
+        }
+      } else {
+        console.log(`No sentiment found for ${sentimentSymbol}`);
+      }
 
       // SEASONALITY SCORING (from DB)
       const seasonality = seasonalityData[symbol];
@@ -142,7 +132,7 @@ export async function GET(request: Request) {
           seasonalityMeta = {
             current_month_return: avgReturn,
             is_bullish_month: avgReturn > 0,
-            current_month_name: monthData.month,
+            current_month_name: monthData.month || monthNames[currentMonth],
             month_index: currentMonth
           };
         }
@@ -184,7 +174,7 @@ export async function GET(request: Request) {
 
     cache = { data: response, timestamp: now };
 
-    // Save to history
+    // Save to history (async, don't wait)
     saveToHistory(processedData).catch(console.error);
 
     return NextResponse.json(response, {
@@ -200,7 +190,7 @@ export async function GET(request: Request) {
   }
 }
 
-// Fetch seasonality from DATABASE (not HTTP API)
+// Fetch seasonality from DATABASE
 async function fetchSeasonalityFromDB(symbols: string[]) {
   const { data: seasonalityRows, error } = await getSupabaseAdmin()
     .from("seasonality_data")
@@ -223,22 +213,26 @@ async function fetchSeasonalityFromDB(symbols: string[]) {
   console.log(`Loaded ${Object.keys(seasonalityMap).length} seasonality records from DB`);
   return seasonalityMap;
 }
+
+// Fetch sentiment from YOUR sentiment API
 async function fetchSentimentData() {
   try {
-    // Call YOUR sentiment API instead of Myfxbook directly
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}` 
-      : 'https://fundamentalpro.vercel.app';
+    // Use absolute URL for server-side fetch
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://fundamentalpro.vercel.app';
+    
+    console.log(`Fetching sentiment from ${baseUrl}/api/sentiment`);
     
     const response = await fetch(`${baseUrl}/api/sentiment`, {
-      headers: { 'Accept': 'application/json' }
+      headers: { 'Accept': 'application/json' },
+      next: { revalidate: 0 } // Don't cache this fetch
     });
     
     if (!response.ok) {
-      throw new Error(`Sentiment API returned ${response.status}`);
+      throw new Error(`Sentiment API returned ${response.status}: ${response.statusText}`);
     }
     
     const result = await response.json();
+    console.log(`Sentiment API returned ${result.data?.length || 0} records`);
     return result.data || [];
     
   } catch (error) {
