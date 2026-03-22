@@ -23,6 +23,7 @@ type SentimentResponse = {
 type BiasType = "bullish" | "bearish" | "contrarian_bullish" | "contrarian_bearish";
 
 export default function SentimentPage() {
+  // ✅ Initialize with empty array to prevent undefined
   const [data, setData] = useState<SentimentRow[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>("Never");
   const [cacheStatus, setCacheStatus] = useState<string>("");
@@ -30,6 +31,8 @@ export default function SentimentPage() {
   const [activeFilter, setActiveFilter] = useState<
     "none" | "long70" | "short70" | "sortLongs" | "sortShorts" | "contrarian"
   >("none");
+  // ✅ Add loading state to prevent rendering before data loads
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
@@ -38,17 +41,30 @@ export default function SentimentPage() {
   }, []);
 
   async function fetchData() {
+    setIsLoading(true);
     try {
       const res = await fetch("/api/sentiment");
       const cacheHeader = res.headers.get('X-Cache');
       setCacheStatus(cacheHeader || 'UNKNOWN');
       
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+      
       const json: SentimentResponse = await res.json();
-      setData(json.data);
-      setLastUpdated(json.last_updated);
+      
+      // ✅ Safety check - ensure data is an array
+      if (json.data && Array.isArray(json.data)) {
+        setData(json.data);
+        setLastUpdated(json.last_updated || new Date().toISOString());
+      } else {
+        console.error("Invalid data format:", json);
+        setData([]);
+      }
     } catch (err) {
       console.error("Error fetching sentiment data:", err);
+      // ✅ Ensure data is empty array on error, not undefined
+      setData([]);
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -64,22 +80,35 @@ export default function SentimentPage() {
     return "bearish";
   }
 
-  let filteredData = data.filter((row) =>
-    row.pair.toLowerCase().includes(searchQuery.toLowerCase())
+  // ✅ Safety check with optional chaining and default to empty array
+  const filteredData = (data || []).filter((row) =>
+    row?.pair?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Apply filters safely
+  let displayData = [...filteredData];
+  
   if (activeFilter === "long70")
-    filteredData = filteredData.filter((row) => row.long_percent >= 70);
+    displayData = displayData.filter((row) => row.long_percent >= 70);
   if (activeFilter === "short70")
-    filteredData = filteredData.filter((row) => row.short_percent >= 70);
+    displayData = displayData.filter((row) => row.short_percent >= 70);
   if (activeFilter === "contrarian")
-    filteredData = filteredData.filter((row) => 
+    displayData = displayData.filter((row) => 
       row.long_percent >= 70 || row.short_percent >= 70
     );
   if (activeFilter === "sortLongs")
-    filteredData = [...filteredData].sort((a, b) => b.long_percent - a.long_percent);
+    displayData = [...displayData].sort((a, b) => b.long_percent - a.long_percent);
   if (activeFilter === "sortShorts")
-    filteredData = [...filteredData].sort((a, b) => b.short_percent - a.short_percent);
+    displayData = [...displayData].sort((a, b) => b.short_percent - a.short_percent);
+
+  // ✅ Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen text-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 px-4 sm:px-6 lg:px-0">
@@ -164,169 +193,184 @@ export default function SentimentPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredData.map((row) => {
-          const bias = getContrarianBias(row.long_percent, row.short_percent);
-          const isContrarian = bias === "contrarian_bullish" || bias === "contrarian_bearish";
-          
-          const biasConfig = {
-            bullish: {
-              label: "Bullish Bias",
-              borderColor: "border-l-blue-500",
-              badgeBg: "bg-blue-500/20",
-              badgeText: "text-blue-300",
-              badgeBorder: "border-blue-500/30"
-            },
-            bearish: {
-              label: "Bearish Bias",
-              borderColor: "border-l-yellow-400",
-              badgeBg: "bg-yellow-400/20",
-              badgeText: "text-yellow-300",
-              badgeBorder: "border-yellow-400/30"
-            },
-            contrarian_bullish: {
-              label: "Contrarian Bullish",
-              borderColor: "border-l-green-500",
-              badgeBg: "bg-green-500/20",
-              badgeText: "text-green-300",
-              badgeBorder: "border-green-500/30"
-            },
-            contrarian_bearish: {
-              label: "Contrarian Bearish",
-              borderColor: "border-l-red-500",
-              badgeBg: "bg-red-500/20",
-              badgeText: "text-red-300",
-              badgeBorder: "border-red-500/30"
-            }
-          };
-
-          const config = biasConfig[bias];
-          const hasPriceData = row.avg_long_price || row.avg_short_price;
-
-          return (
-            <div
-              key={row.pair}
-              className={`bg-blue-950/50 rounded-xl p-5 border border-blue-800/50 shadow-lg hover:shadow-blue-900/20 hover:border-blue-700/50 transition-all duration-300 ${config.borderColor}`}
+        {displayData.length === 0 ? (
+          <div className="col-span-full text-center py-12 text-blue-300">
+            <p className="text-lg">No data available</p>
+            <button 
+              onClick={fetchData}
+              className="mt-4 text-yellow-400 hover:text-yellow-300 underline"
             >
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-white font-bold text-lg">{row.pair}</span>
-                <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${config.badgeBg} ${config.badgeText} ${config.badgeBorder}`}>
-                  {config.label}
-                </span>
-              </div>
+              Retry
+            </button>
+          </div>
+        ) : (
+          displayData.map((row) => {
+            // ✅ Safety check for row data
+            if (!row || !row.pair) return null;
+            
+            const bias = getContrarianBias(row.long_percent || 0, row.short_percent || 0);
+            const isContrarian = bias === "contrarian_bullish" || bias === "contrarian_bearish";
+            
+            const biasConfig = {
+              bullish: {
+                label: "Bullish Bias",
+                borderColor: "border-l-blue-500",
+                badgeBg: "bg-blue-500/20",
+                badgeText: "text-blue-300",
+                badgeBorder: "border-blue-500/30"
+              },
+              bearish: {
+                label: "Bearish Bias",
+                borderColor: "border-l-yellow-400",
+                badgeBg: "bg-yellow-400/20",
+                badgeText: "text-yellow-300",
+                badgeBorder: "border-yellow-400/30"
+              },
+              contrarian_bullish: {
+                label: "Contrarian Bullish",
+                borderColor: "border-l-green-500",
+                badgeBg: "bg-green-500/20",
+                badgeText: "text-green-300",
+                badgeBorder: "border-green-500/30"
+              },
+              contrarian_bearish: {
+                label: "Contrarian Bearish",
+                borderColor: "border-l-red-500",
+                badgeBg: "bg-red-500/20",
+                badgeText: "text-red-300",
+                badgeBorder: "border-red-500/30"
+              }
+            };
 
-              {isContrarian && (
-                <div className="mb-4 p-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg">
-                  <p className="text-xs text-yellow-300 text-center">
-                    <AlertTriangle size={12} className="inline mr-1" />
-                    Retail is extremely {row.long_percent >= 70 ? "long" : "short"} — consider opposite position
-                  </p>
+            const config = biasConfig[bias];
+            const hasPriceData = row.avg_long_price || row.avg_short_price;
+
+            return (
+              <div
+                key={row.pair}
+                className={`bg-blue-950/50 rounded-xl p-5 border border-blue-800/50 shadow-lg hover:shadow-blue-900/20 hover:border-blue-700/50 transition-all duration-300 ${config.borderColor}`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-white font-bold text-lg">{row.pair}</span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${config.badgeBg} ${config.badgeText} ${config.badgeBorder}`}>
+                    {config.label}
+                  </span>
                 </div>
-              )}
 
-              {hasPriceData && (
-                <div className="mb-4 p-3 bg-blue-900/30 rounded-lg border border-blue-800/30">
-                  <div className="flex items-center gap-2 mb-2 text-blue-300 text-xs uppercase tracking-wider">
-                    <DollarSign size={12} />
-                    Average Entry Prices
+                {isContrarian && (
+                  <div className="mb-4 p-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg">
+                    <p className="text-xs text-yellow-300 text-center">
+                      <AlertTriangle size={12} className="inline mr-1" />
+                      Retail is extremely {row.long_percent >= 70 ? "long" : "short"} — consider opposite position
+                    </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {row.avg_long_price && (
-                      <div>
-                        <div className="text-xs text-blue-400 mb-1">Avg Long</div>
-                        <div className="text-sm font-semibold text-white">
-                          {row.avg_long_price.toFixed(5)}
-                        </div>
-                        {row.long_price_distance !== null && (
-                          <div className={`text-xs ${
-                            row.long_price_distance > 0 ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {row.long_price_distance > 0 ? '+' : ''}
-                            {row.long_price_distance.toFixed(1)} pips
+                )}
+
+                {hasPriceData && (
+                  <div className="mb-4 p-3 bg-blue-900/30 rounded-lg border border-blue-800/30">
+                    <div className="flex items-center gap-2 mb-2 text-blue-300 text-xs uppercase tracking-wider">
+                      <DollarSign size={12} />
+                      Average Entry Prices
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {row.avg_long_price && (
+                        <div>
+                          <div className="text-xs text-blue-400 mb-1">Avg Long</div>
+                          <div className="text-sm font-semibold text-white">
+                            {row.avg_long_price.toFixed(5)}
                           </div>
-                        )}
-                      </div>
-                    )}
-                    {row.avg_short_price && (
-                      <div>
-                        <div className="text-xs text-yellow-400/70 mb-1">Avg Short</div>
-                        <div className="text-sm font-semibold text-white">
-                          {row.avg_short_price.toFixed(5)}
+                          {row.long_price_distance !== null && (
+                            <div className={`text-xs ${
+                              row.long_price_distance > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {row.long_price_distance > 0 ? '+' : ''}
+                              {row.long_price_distance.toFixed(1)} pips
+                            </div>
+                          )}
                         </div>
-                        {row.short_price_distance !== null && (
-                          <div className={`text-xs ${
-                            row.short_price_distance > 0 ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {row.short_price_distance > 0 ? '+' : ''}
-                            {row.short_price_distance.toFixed(1)} pips
+                      )}
+                      {row.avg_short_price && (
+                        <div>
+                          <div className="text-xs text-yellow-400/70 mb-1">Avg Short</div>
+                          <div className="text-sm font-semibold text-white">
+                            {row.avg_short_price.toFixed(5)}
                           </div>
-                        )}
-                      </div>
-                    )}
+                          {row.short_price_distance !== null && (
+                            <div className={`text-xs ${
+                              row.short_price_distance > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {row.short_price_distance > 0 ? '+' : ''}
+                              {row.short_price_distance.toFixed(1)} pips
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div className="space-y-2 mb-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-blue-300 flex items-center gap-1">
-                    <TrendingUp size={14} className="text-blue-400" />
-                    Longs
-                  </span>
-                  <span className={`font-semibold ${row.long_percent >= 70 ? "text-red-400" : "text-white"}`}>
-                    {row.long_percent}%
-                    {row.long_percent >= 70 && " ⚠️"}
-                  </span>
-                </div>
-                <div className="bg-blue-900/50 h-8 rounded-lg overflow-hidden border border-blue-800/30">
-                  <div
-                    className={`h-full flex items-center justify-center text-blue-950 font-bold text-sm transition-all duration-500 ${
-                      row.long_percent >= 70 
-                        ? "bg-gradient-to-r from-red-600 to-red-500" 
-                        : "bg-gradient-to-r from-blue-600 to-blue-500"
-                    }`}
-                    style={{ width: `${row.long_percent}%` }}
-                  >
-                    {row.long_percent >= 20 && `${row.long_percent}%`}
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-blue-300 flex items-center gap-1">
+                      <TrendingUp size={14} className="text-blue-400" />
+                      Longs
+                    </span>
+                    <span className={`font-semibold ${(row.long_percent || 0) >= 70 ? "text-red-400" : "text-white"}`}>
+                      {row.long_percent}%
+                      {(row.long_percent || 0) >= 70 && " ⚠️"}
+                    </span>
+                  </div>
+                  <div className="bg-blue-900/50 h-8 rounded-lg overflow-hidden border border-blue-800/30">
+                    <div
+                      className={`h-full flex items-center justify-center text-blue-950 font-bold text-sm transition-all duration-500 ${
+                        (row.long_percent || 0) >= 70 
+                          ? "bg-gradient-to-r from-red-600 to-red-500" 
+                          : "bg-gradient-to-r from-blue-600 to-blue-500"
+                      }`}
+                      style={{ width: `${Math.max(0, Math.min(100, row.long_percent || 0))}%` }}
+                    >
+                      {(row.long_percent || 0) >= 20 && `${row.long_percent}%`}
+                    </div>
+                  </div>
+                  <div className="text-xs text-blue-400 text-right">
+                    {(row.long_positions || 0).toLocaleString()} positions
                   </div>
                 </div>
-                <div className="text-xs text-blue-400 text-right">
-                  {row.long_positions.toLocaleString()} positions
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-yellow-300 flex items-center gap-1">
+                      <TrendingDown size={14} className="text-yellow-400" />
+                      Shorts
+                    </span>
+                    <span className={`font-semibold ${(row.short_percent || 0) >= 70 ? "text-green-400" : "text-white"}`}>
+                      {row.short_percent}%
+                      {(row.short_percent || 0) >= 70 && " ⚠️"}
+                    </span>
+                  </div>
+                  <div className="bg-blue-900/50 h-8 rounded-lg overflow-hidden border border-blue-800/30">
+                    <div
+                      className={`h-full flex items-center justify-center text-blue-950 font-bold text-sm transition-all duration-500 ${
+                        (row.short_percent || 0) >= 70 
+                          ? "bg-gradient-to-r from-green-500 to-green-400" 
+                          : "bg-gradient-to-r from-yellow-400 to-yellow-300"
+                      }`}
+                      style={{ width: `${Math.max(0, Math.min(100, row.short_percent || 0))}%` }}
+                    >
+                      {(row.short_percent || 0) >= 20 && `${row.short_percent}%`}
+                    </div>
+                  </div>
+                  <div className="text-xs text-yellow-400/80 text-right">
+                    {(row.short_positions || 0).toLocaleString()} positions
+                  </div>
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-yellow-300 flex items-center gap-1">
-                    <TrendingDown size={14} className="text-yellow-400" />
-                    Shorts
-                  </span>
-                  <span className={`font-semibold ${row.short_percent >= 70 ? "text-green-400" : "text-white"}`}>
-                    {row.short_percent}%
-                    {row.short_percent >= 70 && " ⚠️"}
-                  </span>
-                </div>
-                <div className="bg-blue-900/50 h-8 rounded-lg overflow-hidden border border-blue-800/30">
-                  <div
-                    className={`h-full flex items-center justify-center text-blue-950 font-bold text-sm transition-all duration-500 ${
-                      row.short_percent >= 70 
-                        ? "bg-gradient-to-r from-green-500 to-green-400" 
-                        : "bg-gradient-to-r from-yellow-400 to-yellow-300"
-                    }`}
-                    style={{ width: `${row.short_percent}%` }}
-                  >
-                    {row.short_percent >= 20 && `${row.short_percent}%`}
-                  </div>
-                </div>
-                <div className="text-xs text-yellow-400/80 text-right">
-                  {row.short_positions.toLocaleString()} positions
-                </div>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
-      {filteredData.length === 0 && (
+      {displayData.length === 0 && !isLoading && (
         <div className="text-center py-12 text-blue-300">
           <p className="text-lg">No data matches your filters</p>
           <button 
